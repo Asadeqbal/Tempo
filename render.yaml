@@ -1,0 +1,22 @@
+# Render Blueprint — deploy as a Static Site
+# Usage: push this repo to GitHub/GitLab, then on Render:
+#   New → Blueprint → select this repo → Apply
+# Render reads this file and configures everything automatically.
+
+services:
+  - type: web
+    name: tempo-cockpit
+    runtime: static
+    # Tailwind v4 + Vite 6 need a modern Node runtime
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+    buildCommand: npm install && npm run build
+    # Vite emits the production site here
+    staticPublishPath: ./dist
+    pullRequestPreviewsEnabled: true
+    # SPA fallback — serve index.html for any path
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

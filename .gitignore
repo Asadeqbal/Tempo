@@ -1,5 +1,25 @@
+# Dependencies
+node_modules
+
+# Build output (Render rebuilds this on the server)
+dist
+
+# Logs
+logs
+*.log
+npm-debug.log*
+
+# Editor / OS
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
+
+# Env
+.env
+.env.local
+*.local
 node_modules/
 .next/
 dist/
 build/
-*.log
