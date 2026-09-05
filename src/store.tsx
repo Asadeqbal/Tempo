@@ -4,11 +4,8 @@ import {
 import type { ReactNode } from "react";
 import { CheckCircle2, Info, AlertTriangle } from "lucide-react";
 import type { ActivityEvent, ActivityKind, AppState, Settings, Status, Task } from "./types";
-import { buildSeed } from "./data/seed";
 import { fmtMinutes, nextOccurrence, todayISO, fmtDate } from "./lib/dates";
 import { PRIORITY_META, STATUS_META } from "./lib/engine";
-
-const KEY = "tempo.state.v1";
 
 export function uid(): string {
   try {
@@ -17,15 +14,42 @@ export function uid(): string {
   return `id-${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
 }
 
-function load(): AppState {
-  try {
-    const raw = localStorage.getItem(KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw) as AppState;
-      if (Array.isArray(parsed.tasks) && parsed.settings && Array.isArray(parsed.activity)) return parsed;
-    }
-  } catch { /* corrupted — reseed */ }
-  return buildSeed();
+/** Brand-new workspace for a freshly created profile. */
+export function buildFreshState(name: string): AppState {
+  const now = new Date().toISOString();
+  const welcome: Task = {
+    id: uid(),
+    title: "Welcome to Tempo — make it yours",
+    description:
+      "Capture tasks fast with ⌘K (try: “Send invoice !high due friday 15m”). Open the dashboard to see what the engine thinks you should do next, press F for Focus Mode, and use “Plan My Day” to fit work into your available hours.",
+    project: "Getting started",
+    priority: "low",
+    status: "todo",
+    dueDate: null,
+    estimatedMinutes: 5,
+    actualMinutes: null,
+    createdAt: now,
+    updatedAt: now,
+    completedAt: null,
+    inProgressSince: null,
+    tags: ["onboarding"],
+    notes: "",
+    links: [],
+    dependsOn: [],
+    recurrence: "none",
+    subtasks: [
+      { id: uid(), title: "Capture your first real task with ⌘K", done: false },
+      { id: uid(), title: "Try Plan My Day on the dashboard", done: false },
+      { id: uid(), title: "Press F and finish one task in Focus Mode", done: false },
+    ],
+    plannedFor: null,
+  };
+  return {
+    tasks: [welcome],
+    activity: [{ id: uid(), taskId: welcome.id, at: now, kind: "created", text: "Workspace created" }],
+    settings: { workdayHours: 8, userName: name },
+    seededAt: now,
+  };
 }
 
 /* --------------------------------- Store --------------------------------- */
@@ -66,16 +90,27 @@ function mkEvent(taskId: string, kind: ActivityKind, text: string): ActivityEven
   return { id: uid(), taskId, at: new Date().toISOString(), kind, text };
 }
 
-export function StoreProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<AppState>(load);
+export function StoreProvider({
+  children,
+  initial,
+  onPersist,
+}: {
+  children: ReactNode;
+  initial: AppState;
+  onPersist?: (state: AppState) => void;
+}) {
+  const [state, setState] = useState<AppState>(initial);
   const ref = useRef(state);
   ref.current = state;
+  const firstRender = useRef(true);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(KEY, JSON.stringify(state));
-    } catch { /* storage full */ }
-  }, [state]);
+    if (firstRender.current) {
+      firstRender.current = false;
+      return; // initial state already came from the encrypted vault
+    }
+    onPersist?.(state);
+  }, [state, onPersist]);
 
   const commit = useCallback((fn: (s: AppState) => AppState) => {
     const next = fn(ref.current);
@@ -262,7 +297,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     };
 
     const resetAll: StoreValue["resetAll"] = () => {
-      const fresh = buildSeed();
+      const fresh = buildFreshState(ref.current.settings.userName);
       commit(() => fresh);
     };
 

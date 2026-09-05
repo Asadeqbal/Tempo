@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  BarChart3, Bell, CalendarDays, Columns, Download, LayoutDashboard, ListTodo,
-  Plus, RefreshCcw, Search, Target, Zap,
+  BarChart3, Bell, CalendarDays, Columns, Download, KeyRound, LayoutDashboard,
+  ListTodo, Loader2, LogOut, Plus, RefreshCcw, Search, ShieldCheck, Target, Zap,
 } from "lucide-react";
 import type { Status, ViewName } from "./types";
-import { StoreProvider, ToastProvider, useStore, useToasts, useNow } from "./store";
+import { StoreProvider, ToastProvider, buildFreshState, useStore, useToasts, useNow } from "./store";
 import { getReminders } from "./lib/engine";
+import { AuthProvider, useAuth } from "./lib/auth";
+import AuthScreen from "./components/AuthScreen";
+import ChangePasswordModal from "./components/ChangePasswordModal";
+import { TempoLogo } from "./components/Logo";
 
 const SEVERITY_DOT: Record<string, string> = {
   critical: "bg-ember", high: "bg-tang", medium: "bg-amber", low: "bg-sage",
@@ -34,6 +38,7 @@ const VIEWS: { id: ViewName; label: string; title: string; sub: string }[] = [
 function Shell() {
   const { state, resetAll, exportJSON, setPlannedFor } = useStore();
   const { push } = useToasts();
+  const { user, logout } = useAuth();
   const now = useNow(1000);
 
   const [view, setView] = useState<ViewName>("dashboard");
@@ -44,6 +49,10 @@ function Shell() {
   const [query, setQuery] = useState("");
   const [bellOpen, setBellOpen] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [pwModal, setPwModal] = useState(false);
+  const [confirmLogout, setConfirmLogout] = useState(false);
+
+  const userInitials = (user?.name ?? "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
 
   const reminders = useMemo(() => getReminders(state.tasks), [state.tasks]);
   const criticalCount = reminders.filter((r) => r.severity === "critical").length;
@@ -97,11 +106,7 @@ function Shell() {
       {/* Sidebar */}
       <aside className="night-texture flex w-14 shrink-0 flex-col border-r border-nightline md:w-[212px]">
         <div className="flex items-center gap-2.5 px-3 py-4 md:px-4">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-night2 ring-1 ring-nightline">
-            <svg width="20" height="20" viewBox="0 0 32 32" fill="none">
-              <path d="M4 21 L10 21 L13 9 L17.5 25 L20.5 15 L23 21 L28 21" stroke="#54c29a" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          </span>
+          <TempoLogo size={34} light />
           <div className="hidden md:block">
             <p className="font-display text-[17px] font-bold leading-none tracking-tight text-white">Tempo</p>
             <p className="mt-0.5 font-mono text-[9px] uppercase tracking-[0.18em] text-nighttext/60">work cockpit</p>
@@ -138,13 +143,43 @@ function Shell() {
         </nav>
 
         <div className="space-y-1 border-t border-nightline px-2 py-3 md:px-2.5">
+          {/* Signed-in profile */}
+          <div className="mb-2 flex items-center gap-2 rounded-lg bg-night2/70 px-2.5 py-2">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-pine font-mono text-[10px] font-bold text-white ring-2 ring-mint/25">
+              {userInitials}
+            </span>
+            <div className="hidden min-w-0 flex-1 md:block">
+              <p className="truncate text-[12px] font-semibold leading-tight text-white">{user?.name}</p>
+              <p className="flex items-center gap-1 font-mono text-[9px] uppercase tracking-[0.12em] text-mint/70">
+                <ShieldCheck size={9} /> encrypted vault
+              </p>
+            </div>
+            <div className="ml-auto flex items-center gap-0.5">
+              <button onClick={() => setPwModal(true)} title="Change password"
+                className="rounded-md p-1.5 text-nighttext/70 transition-colors hover:bg-night/60 hover:text-mint">
+                <KeyRound size={13} />
+              </button>
+              <button
+                onClick={() => {
+                  if (!confirmLogout) { setConfirmLogout(true); window.setTimeout(() => setConfirmLogout(false), 2200); return; }
+                  setConfirmLogout(false);
+                  push("info", "Workspace locked", "Sign in again to reopen your tasks.");
+                  logout();
+                }}
+                title={confirmLogout ? "Click again to lock" : "Lock & sign out"}
+                className={`rounded-md p-1.5 transition-colors ${confirmLogout ? "bg-ember/25 text-[#f0a48f]" : "text-nighttext/70 hover:bg-night/60 hover:text-[#f0a48f]"}`}>
+                <LogOut size={13} />
+              </button>
+            </div>
+          </div>
+
           <div className="mb-2 hidden items-center gap-2 rounded-lg bg-night2/70 px-2.5 py-2 md:flex">
             <Zap size={13} className="shrink-0 text-mint" />
             <p className="font-mono text-[10.5px] leading-snug text-nighttext">
               {state.settings.workdayHours}h workday ·<br />local-first data
             </p>
           </div>
-          <button onClick={() => { exportJSON(); push("success", "Backup exported", "JSON snapshot downloaded"); }}
+          <button onClick={() => { exportJSON(); push("success", "Backup exported", "Unencrypted JSON snapshot downloaded"); }}
             className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] font-medium text-nighttext/75 transition-colors hover:bg-night2/60 hover:text-white"
             title="Export backup">
             <Download size={15} /> <span className="hidden md:block">Export backup</span>
@@ -153,12 +188,12 @@ function Shell() {
             onClick={() => {
               if (!confirmReset) { setConfirmReset(true); window.setTimeout(() => setConfirmReset(false), 2600); return; }
               resetAll(); setConfirmReset(false);
-              push("info", "Demo data restored", "All tasks reset to the sample workspace");
+              push("info", "Workspace reset", "All tasks in this profile were cleared");
             }}
             className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-[12.5px] font-medium transition-colors
               ${confirmReset ? "bg-ember/20 text-[#f0a48f]" : "text-nighttext/75 hover:bg-night2/60 hover:text-white"}`}
-            title="Reset demo data">
-            <RefreshCcw size={15} /> <span className="hidden md:block">{confirmReset ? "Click to confirm" : "Reset demo data"}</span>
+            title="Reset workspace data">
+            <RefreshCcw size={15} /> <span className="hidden md:block">{confirmReset ? "Click to confirm" : "Reset workspace"}</span>
           </button>
           <div className="hidden pt-1 md:block">
             <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 px-2.5 font-mono text-[9.5px] text-nighttext/50">
@@ -292,16 +327,41 @@ function Shell() {
       />
       <QuickCapture open={captureOpen} onClose={() => setCaptureOpen(false)} />
       <FocusMode open={focus.open} initialTaskId={focus.taskId} onClose={() => setFocus((f) => ({ ...f, open: false }))} />
+      <ChangePasswordModal open={pwModal} onClose={() => setPwModal(false)} />
     </div>
+  );
+}
+
+/* --------------------------------- Auth gate ------------------------------ */
+
+function BootSplash() {
+  return (
+    <div className="night-texture flex min-h-screen items-center justify-center">
+      <div className="flex flex-col items-center gap-4">
+        <span className="anim-breathe"><TempoLogo size={52} light /></span>
+        <p className="font-mono text-[11px] uppercase tracking-[0.22em] text-nighttext/70">Unlocking workspace…</p>
+      </div>
+    </div>
+  );
+}
+
+function Gate() {
+  const auth = useAuth();
+  if (auth.phase === "booting") return <BootSplash />;
+  if (auth.phase !== "ready" || !auth.user || !auth.appState) return <AuthScreen />;
+  return (
+    <StoreProvider key={auth.user.uid} initial={auth.appState} onPersist={auth.persist}>
+      <Shell />
+    </StoreProvider>
   );
 }
 
 export default function App() {
   return (
-    <StoreProvider>
+    <AuthProvider freshState={buildFreshState}>
       <ToastProvider>
-        <Shell />
+        <Gate />
       </ToastProvider>
-    </StoreProvider>
+    </AuthProvider>
   );
 }
